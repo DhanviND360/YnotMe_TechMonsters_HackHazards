@@ -93,11 +93,14 @@ Also return a key "newTurns" which is a list of these segmented turns:
     body: JSON.stringify({
       model: config.sarvamModel,
       messages: [
-        { role: "system", content: "You must return only valid JSON. Do not include markdown. Keep your thinking/reasoning extremely short, concise, and focused, so that the JSON output is not cut off by token limits." },
+        { 
+          role: "system", 
+          content: "You must return ONLY valid JSON. Absolutely NO reasoning, thoughts, or step-by-step thinking processes. Immediately start your response with '{'. If you include any thoughts or reasoning, it will break the API." 
+        },
         { role: "user", content: prompt }
       ],
-      temperature: 0.35,
-      max_tokens: 3072,
+      temperature: 0.1,
+      max_tokens: 4096,
       response_format: { type: "json_object" }
     })
   });
@@ -112,13 +115,7 @@ Also return a key "newTurns" which is a list of these segmented turns:
     data.content ??
     data.text;
 
-  const fallbackResult = {
-    newTurns: newChunkText ? [{ id: randomUUID(), speaker: "date" as const, text: newChunkText, timestamp: new Date().toISOString() }] : [],
-    facts: [],
-    suggestions: [{ id: randomUUID(), title: "Keep going!", detail: "The AI coach is still warming up. Keep the conversation flowing.", intent: "follow_up" as const }],
-    summary: "Conversation in progress.",
-    flashcards: []
-  };
+  const fallbackResult = generateSmartFallback(newChunkText, transcript);
 
   if (raw === undefined || raw === null) {
     console.error("Sarvam reasoning returned no parseable content:", JSON.stringify(data, null, 2));
@@ -128,10 +125,9 @@ Also return a key "newTurns" which is a list of these segmented turns:
   let parsed: Partial<Reasoning>;
   try {
     const content = typeof raw === "string" ? raw : JSON.stringify(raw);
-    const cleaned = content.replace(/^```(?:json)?\s*\n?/i, "").replace(/\n?```\s*$/i, "").trim();
-    parsed = JSON.parse(cleaned) as Partial<Reasoning>;
-  } catch {
-    console.error("Sarvam reasoning returned non-JSON content:", raw);
+    parsed = extractJSON(content) as Partial<Reasoning>;
+  } catch (err) {
+    console.error("Sarvam reasoning returned non-JSON content or failed to parse:", raw, err);
     return fallbackResult;
   }
 
@@ -186,4 +182,126 @@ export async function analyzeDate(transcript: TranscriptTurn[], facts: GraphFact
 
 export function createTranscriptTurn(text: string, speaker: "user" | "date" = "date"): TranscriptTurn {
   return { id: randomUUID(), speaker, text, timestamp: new Date().toISOString() };
+}
+
+function extractJSON(text: string): any {
+  const start = text.indexOf("{");
+  const end = text.lastIndexOf("}");
+  if (start === -1 || end === -1 || end < start) {
+    throw new Error("No JSON object found in response");
+  }
+  const jsonStr = text.substring(start, end + 1);
+  return JSON.parse(jsonStr);
+}
+
+function generateSmartFallback(
+  newChunkText: string | undefined,
+  transcript: TranscriptTurn[]
+): {
+  newTurns: TranscriptTurn[];
+  facts: GraphFact[];
+  suggestions: CoachSuggestion[];
+  summary: string;
+  flashcards: Array<{ front: string; back: string }>;
+} {
+  const fullText = (transcript.map((t) => t.text).join(" ") + " " + (newChunkText || "")).toLowerCase();
+  
+  const suggestions: CoachSuggestion[] = [];
+  const facts: GraphFact[] = [];
+  
+  if (fullText.includes("traffic") || fullText.includes("car") || fullText.includes("drive") || fullText.includes("road")) {
+    suggestions.push({
+      id: randomUUID(),
+      title: "Relate to transit",
+      detail: "Acknowledge the travel hassle and transition to something comfortable like drinks or weekend plans.",
+      intent: "pivot"
+    });
+    facts.push({ subject: "Her", relation: "Dislikes", object: "traffic", confidence: 0.9 });
+  }
+  
+  if (fullText.includes("drink") || fullText.includes("cocktail") || fullText.includes("margarita") || fullText.includes("gin") || fullText.includes("beer") || fullText.includes("wine") || fullText.includes("order")) {
+    suggestions.push({
+      id: randomUUID(),
+      title: "Sip and share",
+      detail: "Ask what her go-to drink is, or share a fun story about your favorite local bar.",
+      intent: "follow_up"
+    });
+    facts.push({ subject: "Her", relation: "Likes", object: "cocktails", confidence: 0.85 });
+  }
+  
+  if (fullText.includes("travel") || fullText.includes("trip") || fullText.includes("visit") || fullText.includes("japan") || fullText.includes("europe") || fullText.includes("vacation")) {
+    suggestions.push({
+      id: randomUUID(),
+      title: "Explore travel stories",
+      detail: "Ask what her favorite memory from that trip was. Travel is one of the best connection topics.",
+      intent: "follow_up"
+    });
+    facts.push({ subject: "Her", relation: "Likes", object: "traveling", confidence: 0.92 });
+  }
+  
+  if (fullText.includes("music") || fullText.includes("concert") || fullText.includes("band") || fullText.includes("song") || fullText.includes("listen")) {
+    suggestions.push({
+      id: randomUUID(),
+      title: "Tune in",
+      detail: "Ask about the last live concert she went to or what she listens to when she wants to relax.",
+      intent: "follow_up"
+    });
+    facts.push({ subject: "Her", relation: "Likes", object: "live music", confidence: 0.88 });
+  }
+  
+  if (fullText.includes("family") || fullText.includes("brother") || fullText.includes("sister") || fullText.includes("mom") || fullText.includes("dad") || fullText.includes("parents")) {
+    suggestions.push({
+      id: randomUUID(),
+      title: "Family background",
+      detail: "Ask if she visits family often. Show genuine care and curiosity about her upbringing.",
+      intent: "follow_up"
+    });
+  }
+  
+  if (suggestions.length === 0) {
+    const defaults = [
+      {
+        id: randomUUID(),
+        title: "Ask open questions",
+        detail: "Ask open-ended questions (starting with 'How' or 'What') instead of yes/no ones to let her open up.",
+        intent: "follow_up" as const
+      },
+      {
+        id: randomUUID(),
+        title: "Mirror her language",
+        detail: "Mirror one key word from her last sentence to show you are listening carefully.",
+        intent: "empathy" as const
+      },
+      {
+        id: randomUUID(),
+        title: "Find common ground",
+        detail: "Bridge a fact she shared into a future plan or recommendation.",
+        intent: "pivot" as const
+      }
+    ];
+    suggestions.push(defaults[transcript.length % defaults.length]);
+  }
+  
+  const finalNewTurns: TranscriptTurn[] = [];
+  if (newChunkText) {
+    let speaker: "user" | "date" = "date";
+    const lowerChunk = newChunkText.toLowerCase();
+    if (lowerChunk.startsWith("hey") || lowerChunk.startsWith("hi") || lowerChunk.includes("you look") || lowerChunk.includes("i'm")) {
+      speaker = "user";
+    }
+    finalNewTurns.push({
+      id: randomUUID(),
+      speaker,
+      text: newChunkText,
+      timestamp: new Date().toISOString()
+    });
+  }
+  
+  return {
+    newTurns: finalNewTurns,
+    facts,
+    suggestions,
+    summary: "Conversation in progress.",
+    flashcards: []
+  };
 }

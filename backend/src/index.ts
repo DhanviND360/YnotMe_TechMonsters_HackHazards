@@ -68,7 +68,11 @@ app.post("/api/sessions/:id/audio", upload.single("audio"), async (req, res, nex
     session.flashcards = reasoning.flashcards;
 
     saveSession(session);
-    await writeFacts(session, reasoning.facts);
+    
+    // Write facts to Neo4j in the background so slow DB queries do not block API response
+    writeFacts(session, reasoning.facts).catch((error) => {
+      console.error("[Neo4j Error] Failed to write facts asynchronously:", error);
+    });
 
     res.json({
       session,
@@ -91,8 +95,14 @@ app.post("/api/sessions/:id/end", async (req, res, next) => {
     session.facts = mergeFacts(session.facts, reasoning.facts);
     session.flashcards = reasoning.flashcards.length ? reasoning.flashcards : session.flashcards;
     const ended = endSession(session, analysis, reasoning.summary);
-    await writeFacts(ended, ended.facts);
-    await persistSessionArtifact(ended);
+
+    // Save facts and artifacts in background to keep session-end endpoint fast and resilient
+    writeFacts(ended, ended.facts).catch((error) => {
+      console.error("[Neo4j Error] Failed to write facts during session end:", error);
+    });
+    persistSessionArtifact(ended).catch((error) => {
+      console.error("[Supabase Error] Failed to persist session artifact:", error);
+    });
 
     res.json({ session: ended, analysis });
   } catch (error) {

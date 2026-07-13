@@ -138,6 +138,60 @@ function KeyMomentCard({ fact }: { fact: GraphFact }) {
   );
 }
 
+const SIMULATED_STEPS = [
+  {
+    turn: { id: "sim1", speaker: "user" as const, text: "Hey! Nice to finally meet you in person. You look great.", timestamp: new Date().toISOString() },
+    suggestions: [
+      { id: "s1", title: "Keep it warm and light", detail: "Ask how her day was or comment on the venue to break the ice.", intent: "follow_up" as const }
+    ],
+    facts: []
+  },
+  {
+    turn: { id: "sim2", speaker: "date" as const, text: "Aw, thanks! You too. Yeah, the traffic was crazy, but I'm glad I made it. This place is cute!", timestamp: new Date().toISOString() },
+    suggestions: [
+      { id: "s2", title: "Validate and pivot", detail: "Acknowledge the traffic hassle, then ask what she wants to drink. Show leadership.", intent: "pivot" as const }
+    ],
+    facts: [
+      { subject: "Her", relation: "Dislikes", object: "traffic", confidence: 0.95 },
+      { subject: "Her", relation: "Likes", object: "venue", confidence: 0.90 }
+    ]
+  },
+  {
+    turn: { id: "sim3", speaker: "user" as const, text: "Yeah, traffic tonight is a nightmare. But they have amazing cocktails here. What are you in the mood for?", timestamp: new Date().toISOString() },
+    suggestions: [
+      { id: "s3", title: "Excellent preference search", detail: "Great job asking for her choice. Listen carefully to her choice.", intent: "empathy" as const }
+    ],
+    facts: []
+  },
+  {
+    turn: { id: "sim4", speaker: "date" as const, text: "I'd love a spicy margarita or something with gin. I'm actually a big fan of botanical gins, I went to a distillery tasting last month!", timestamp: new Date().toISOString() },
+    suggestions: [
+      { id: "s4", title: "Explore unique experiences", detail: "Ask about the distillery tasting. Where was it? People love sharing travel/event stories.", intent: "follow_up" as const }
+    ],
+    facts: [
+      { subject: "Her", relation: "Likes", object: "botanical gins", confidence: 0.94 },
+      { subject: "Her", relation: "Visited", object: "distillery tasting", confidence: 0.89 }
+    ]
+  },
+  {
+    turn: { id: "sim5", speaker: "user" as const, text: "Oh, a distillery tasting sounds fun! Which distillery did you go to?", timestamp: new Date().toISOString() },
+    suggestions: [
+      { id: "s5", title: "Active listening active", detail: "Perfect follow-up. Let her share her story and build the travel connection.", intent: "follow_up" as const }
+    ],
+    facts: []
+  },
+  {
+    turn: { id: "sim6", speaker: "date" as const, text: "It was this tiny place in Maine when I was visiting family. They use local wild blueberries in the infusion.", timestamp: new Date().toISOString() },
+    suggestions: [
+      { id: "s6", title: "Connect on family or travel", detail: "Ask if she visits family in Maine often. Keep the momentum high.", intent: "follow_up" as const }
+    ],
+    facts: [
+      { subject: "Her", relation: "Has family in", object: "Maine", confidence: 0.96 },
+      { subject: "Her", relation: "Likes", object: "wild blueberries", confidence: 0.92 }
+    ]
+  }
+];
+
 // ── Main Screen ─────────────────────────────────────────────────────────
 export function LiveSessionScreen({ navigation, route }: Props) {
   const { accessToken } = useAuth();
@@ -159,6 +213,8 @@ export function LiveSessionScreen({ navigation, route }: Props) {
   const tickRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const flatListRef = useRef<FlatList>(null);
 
+  const simStepIndexRef = useRef(0);
+
   // Timer
   useEffect(() => {
     tickRef.current = setInterval(() => setElapsed((e) => e + 1), 1000);
@@ -179,14 +235,38 @@ export function LiveSessionScreen({ navigation, route }: Props) {
     return `${h}:${m}:${sec}`;
   };
 
-  // ── Audio recording logic ──
-  const startListening = useCallback(async () => {
-    const perm = await requestRecordingPermissionsAsync();
-    if (!perm.granted) return;
-    await setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true });
-    listeningRef.current = true;
-    setListening(true);
-    recordChunk();
+  const runDemoTimer = useCallback(() => {
+    if (!listeningRef.current) return;
+    chunkTimerRef.current = setTimeout(() => {
+      if (!listeningRef.current) return;
+      setUploading(true);
+      
+      // Simulate network delay for AI processing
+      setTimeout(() => {
+        if (!listeningRef.current) {
+          setUploading(false);
+          return;
+        }
+        
+        const step = SIMULATED_STEPS[simStepIndexRef.current % SIMULATED_STEPS.length];
+        
+        setTranscript((prev) => [...prev, step.turn]);
+        if (step.suggestions && step.suggestions.length > 0) {
+          setSuggestions((prev) => [...prev, ...step.suggestions]);
+        }
+        if (step.facts && step.facts.length > 0) {
+          setFacts((prev) => {
+            const map = new Map(prev.map((f) => [`${f.subject}:${f.relation}:${f.object}`, f]));
+            for (const f of step.facts) map.set(`${f.subject}:${f.relation}:${f.object}`, f);
+            return [...map.values()];
+          });
+        }
+        
+        simStepIndexRef.current += 1;
+        setUploading(false);
+        runDemoTimer();
+      }, 1200);
+    }, 7800);
   }, []);
 
   const recordChunk = useCallback(async () => {
@@ -229,25 +309,49 @@ export function LiveSessionScreen({ navigation, route }: Props) {
     }
   }, [sessionId, recorder, accessToken, recordChunk]);
 
+  // ── Audio recording logic ──
+  const startListening = useCallback(async () => {
+    const perm = await requestRecordingPermissionsAsync();
+    if (!perm.granted) return;
+    await setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true });
+    listeningRef.current = true;
+    setListening(true);
+    if (sessionId === "demo") {
+      runDemoTimer();
+    } else {
+      recordChunk();
+    }
+  }, [sessionId, recordChunk, runDemoTimer]);
+
   const pauseListening = useCallback(async () => {
     listeningRef.current = false;
     if (nextChunkRef.current) clearTimeout(nextChunkRef.current);
+    if (chunkTimerRef.current) clearTimeout(chunkTimerRef.current);
     setListening(false);
-    await stopChunk();
-  }, [stopChunk]);
+    if (sessionId !== "demo") {
+      await stopChunk();
+    }
+  }, [sessionId, stopChunk]);
 
   const endDate = useCallback(async () => {
     listeningRef.current = false;
     if (nextChunkRef.current) clearTimeout(nextChunkRef.current);
+    if (chunkTimerRef.current) clearTimeout(chunkTimerRef.current);
     setListening(false);
     if (tickRef.current) clearInterval(tickRef.current);
-    if (recorder.isRecording) await stopChunk();
-    if (navigation.canGoBack()) {
-      navigation.goBack();
-    } else {
-      navigation.navigate("Tabs");
+    if (sessionId !== "demo" && recorder.isRecording) {
+      await stopChunk();
     }
-  }, [sessionId, recorder, accessToken, stopChunk, navigation]);
+    if (sessionId === "demo") {
+      navigation.replace("DateDetail", { sessionId: "demo" });
+    } else {
+      if (navigation.canGoBack()) {
+        navigation.goBack();
+      } else {
+        navigation.navigate("Tabs");
+      }
+    }
+  }, [sessionId, recorder, stopChunk, navigation]);
 
   // Auto-scroll transcript
   useEffect(() => {

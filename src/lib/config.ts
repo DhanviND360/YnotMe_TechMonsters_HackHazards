@@ -13,8 +13,8 @@ function getDevApiBaseUrl() {
   return host ? `http://${host}:8080/api` : "http://localhost:8080/api";
 }
 
-const resolvedUrl = process.env.EXPO_PUBLIC_API_BASE_URL ?? getDevApiBaseUrl();
-console.log("[YnotMe] API base URL:", resolvedUrl);
+const resolvedUrl = process.env.EXPO_PUBLIC_API_BASE_URL || getDevApiBaseUrl();
+console.log("[YnotMe] API base URL:", resolvedUrl, process.env.EXPO_PUBLIC_API_BASE_URL ? "(from env)" : "(auto-detected)");
 
 export const config = {
   apiBaseUrl: resolvedUrl

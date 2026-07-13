@@ -1,3 +1,4 @@
+import { Platform } from "react-native";
 import { config, isApiConfigured } from "./config";
 import { CoachSuggestion, DateAnalysis, DateSession, GraphFact, TranscriptTurn } from "../types";
 
@@ -10,9 +11,14 @@ type ApiSessionResponse = {
 };
 
 async function request<T>(path: string, options: RequestInit = {}, token?: string): Promise<T> {
+  const isMultipart =
+    options.body &&
+    (options.body instanceof FormData ||
+      (typeof options.body === "object" && "append" in options.body));
+
   const headers: Record<string, string> = {
     Accept: "application/json",
-    ...(options.body instanceof FormData ? {} : { "Content-Type": "application/json" }),
+    ...(isMultipart ? {} : { "Content-Type": "application/json" }),
     ...(options.headers as Record<string, string> | undefined)
   };
   if (token) headers.Authorization = `Bearer ${token}`;
@@ -40,7 +46,7 @@ export const api = {
   startSession(token?: string) {
     return request<ApiSessionResponse>("/sessions", { method: "POST", body: JSON.stringify({}) }, token);
   },
-  uploadAudio(sessionId: string, audioUri: string, token?: string) {
+  async uploadAudio(sessionId: string, audioUri: string, token?: string) {
     const extension = audioUri.split(".").pop() || "m4a";
     let mimeType = "audio/x-m4a";
     if (extension === "3gp" || extension === "3gpp" || extension === "gpp") {
@@ -54,11 +60,26 @@ export const api = {
     }
 
     const form = new FormData();
-    form.append("audio", {
-      uri: audioUri,
-      name: `ynotme-${Date.now()}.${extension}`,
-      type: mimeType
-    } as unknown as string);
+    if (Platform.OS === "web") {
+      try {
+        const response = await fetch(audioUri);
+        const blob = await response.blob();
+        form.append("audio", blob, `ynotme-${Date.now()}.${extension}`);
+      } catch (err) {
+        console.error("[YnotMe] Failed to convert blob URI on web:", err);
+        form.append("audio", {
+          uri: audioUri,
+          name: `ynotme-${Date.now()}.${extension}`,
+          type: mimeType
+        } as unknown as string);
+      }
+    } else {
+      form.append("audio", {
+        uri: audioUri,
+        name: `ynotme-${Date.now()}.${extension}`,
+        type: mimeType
+      } as unknown as string);
+    }
     return request<ApiSessionResponse>(`/sessions/${sessionId}/audio`, { method: "POST", body: form }, token);
   },
   endSession(sessionId: string, token?: string) {
