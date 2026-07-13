@@ -1,25 +1,31 @@
 {
   "expo": {
-    "name": "hackhazards26_YnotMe_v2",
-    "slug": "hackhazards26_YnotMe_v2",
+    "name": "YnotMe",
+    "slug": "ynotme",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/icon.png",
-    "userInterfaceStyle": "light",
-    "ios": {
-      "supportsTablet": true
-    },
+    "scheme": "ynotme",
+    "userInterfaceStyle": "dark",
+    "assetBundlePatterns": ["**/*"],
     "android": {
+      "package": "com.hackhazards.ynotme",
+      "permissions": ["RECORD_AUDIO", "INTERNET"],
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
-        "foregroundImage": "./assets/android-icon-foreground.png",
-        "backgroundImage": "./assets/android-icon-background.png",
-        "monochromeImage": "./assets/android-icon-monochrome.png"
-      },
-      "predictiveBackGestureEnabled": false
+        "backgroundColor": "#090A0F"
+      }
     },
-    "web": {
-      "favicon": "./assets/favicon.png"
+    "plugins": [
+      [
+        "expo-audio",
+        {
+          "microphonePermission": "YnotMe uses your microphone to transcribe conversations and coach you in real time."
+        }
+      ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "replace-with-eas-project-id"
+      }
     }
   }
 }
